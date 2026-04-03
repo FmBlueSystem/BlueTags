@@ -17,7 +17,7 @@ género y sub-género usando voting multi-fuente con umbral de confianza configu
   rusqlite, r2d2, r2d2_sqlite, governor, clap, reqwest, serde, serde_json,
   indicatif, colored, backoff, anyhow, thiserror, dotenvy.
 
-- [ ] **Card 02 — SQLite cache layer**
+- [x] **Card 02 — SQLite cache layer**
   Schema: track_cache (fingerprint PK, TTL 90d), genre_cache (genre_slug PK, TTL 180d),
   mb_genre_mapping (source_tag PK). WAL mode + r2d2 pool.
   cache.rs: struct CachePool wrapping Arc<r2d2::Pool>, métodos get_track/set_track/get_genre/set_genre.
