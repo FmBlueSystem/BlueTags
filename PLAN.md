@@ -22,7 +22,7 @@ género y sub-género usando voting multi-fuente con umbral de confianza configu
   mb_genre_mapping (source_tag PK). WAL mode + r2d2 pool.
   cache.rs: struct CachePool wrapping Arc<r2d2::Pool>, métodos get_track/set_track/get_genre/set_genre.
 
-- [ ] **Card 03 — MB Genre Mapping bootstrap**
+- [x] **Card 03 — MB Genre Mapping bootstrap**
   CSV bundleado via include_str!("../../data/mb_genre_mapping.csv").
   mb_mapping.rs: fn bootstrap(pool) inserta en SQLite si tabla vacía.
   fn lookup(pool, source_tag) → Option<MbGenre>: normaliza a lowercase, busca en SQLite.
