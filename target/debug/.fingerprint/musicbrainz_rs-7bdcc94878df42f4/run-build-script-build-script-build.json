@@ -1,0 +1,1 @@
+{"rustc":12610991425282158916,"features":"","declared_features":"","target":0,"profile":0,"path":0,"deps":[[6418973454580595379,"build_script_build",false,4119501044880194079]],"local":[{"RerunIfChanged":{"output":"debug/build/musicbrainz_rs-7bdcc94878df42f4/output","paths":["tests/serde/data"]}}],"rustflags":[],"config":0,"compile_kind":0}

@@ -1,0 +1,59 @@
+[package]
+name = "music-tagger"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "music-tagger"
+path = "src/main.rs"
+
+[dependencies]
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# HTTP + JSON (async — no blocking en rayon threads)
+reqwest = { version = "0.12", features = ["json"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Audio tags — AIFF, FLAC, MP3, WAV
+lofty = "0.22"
+
+# Fingerprinting AcoustID — Rust puro, sin fpcalc externo
+rusty-chromaprint = "0.3"
+
+# MusicBrainz — cliente oficial con rate limit 1req/s built-in
+musicbrainz_rs = "0.9"
+
+# Paralelismo CPU
+rayon = "1"
+
+# Cache local — WAL mode + connection pool
+rusqlite = { version = "0.31", features = ["bundled"] }
+r2d2 = "0.8"
+r2d2_sqlite = "0.24"
+
+# Rate limiting por fuente (token bucket, Arc-safe entre threads)
+governor = "0.6"
+
+# ML offline — ONNX Runtime
+ort = { version = "2.0.0-rc.12", features = ["download-binaries"] }
+
+# Output / UX
+indicatif = "0.17"
+colored = "2"
+
+# Retry / backoff exponencial
+backoff = "0.4"
+
+# Error handling
+anyhow = "1"
+thiserror = "1"
+
+# Env vars
+dotenvy = "0.15"
+
+[profile.release]
+opt-level = 3
+lto = true
