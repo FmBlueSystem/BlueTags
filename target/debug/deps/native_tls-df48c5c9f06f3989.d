@@ -1,8 +1,0 @@
-/Users/freddymolina/Desktop/BlueGeneros/music-tagger/target/debug/deps/native_tls-df48c5c9f06f3989.d: /Users/freddymolina/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/native-tls-0.2.18/src/lib.rs /Users/freddymolina/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/native-tls-0.2.18/src/imp/security_framework.rs
-
-/Users/freddymolina/Desktop/BlueGeneros/music-tagger/target/debug/deps/libnative_tls-df48c5c9f06f3989.rlib: /Users/freddymolina/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/native-tls-0.2.18/src/lib.rs /Users/freddymolina/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/native-tls-0.2.18/src/imp/security_framework.rs
-
-/Users/freddymolina/Desktop/BlueGeneros/music-tagger/target/debug/deps/libnative_tls-df48c5c9f06f3989.rmeta: /Users/freddymolina/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/native-tls-0.2.18/src/lib.rs /Users/freddymolina/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/native-tls-0.2.18/src/imp/security_framework.rs
-
-/Users/freddymolina/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/native-tls-0.2.18/src/lib.rs:
-/Users/freddymolina/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/native-tls-0.2.18/src/imp/security_framework.rs:
