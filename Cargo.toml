@@ -7,6 +7,10 @@ edition = "2021"
 name = "music-tagger"
 path = "src/main.rs"
 
+[lib]
+name = "music_tagger"
+path = "src/lib.rs"
+
 [dependencies]
 # CLI
 clap = { version = "4", features = ["derive"] }
@@ -53,6 +57,22 @@ thiserror = "1"
 
 # Env vars
 dotenvy = "0.15"
+
+# Audio decoding (AcoustID fingerprinting)
+symphonia = { version = "0.5", features = ["mp3", "flac", "wav", "aiff", "ogg", "pcm"] }
+
+# Fingerprint encoding (AcoustID API)
+base64 = "0.22"
+
+# Regex (Wikipedia extraction)
+regex = "1"
+
+# Async helpers
+futures = "0.3"
+
+[dev-dependencies]
+wiremock = "0.6"
+tempfile = "3"
 
 [profile.release]
 opt-level = 3

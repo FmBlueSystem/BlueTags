@@ -1,23 +1,175 @@
 mod cache;
+mod cli;
 mod config;
 mod models;
+mod pipeline;
+mod rate_limit;
 mod sources;
 mod tagger;
 
-use anyhow::Result;
+use crate::sources::essentia::EssentiaClassifier;
+use clap::Parser;
+use colored::Colorize;
+use lofty::prelude::*;
+use indicatif::{ProgressBar, ProgressStyle};
+use rayon::prelude::*;
+use std::path::Path;
+use std::sync::Arc;
 
-fn main() -> Result<()> {
+fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
 
-    let _config = config::Config::from_env()?;
+    let cli = cli::Cli::parse();
+    let config = config::Config::from_env()?;
+
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(cli.jobs)
+        .build_global()?;
 
     // Inicializar cache SQLite
-    let cache = cache::build_pool("music-tagger.db")?;
+    let cache = Arc::new(cache::build_pool("music-tagger.db")?);
 
-    // Bootstrap MB Genre Mapping (no-op si ya está poblado)
+    // Bootstrap MB Genre Mapping
     sources::mb_mapping::bootstrap(&cache.pool)?;
 
-    println!("music-tagger — iniciando");
+    // Inicializar rate limiters (compartidos entre todos los threads via Arc)
+    let limiters = Arc::new(rate_limit::RateLimiters::new());
+
+    // Cargar modelo Essentia (opcional)
+    let essentia_clf: Option<Arc<EssentiaClassifier>> = if cli.no_essentia {
+        None
+    } else {
+        config.essentia_model_path.as_ref().and_then(|p| {
+            EssentiaClassifier::load(Path::new(p)).map(Arc::new)
+        })
+    };
+
+    match cli.command {
+        cli::Commands::Audit { path } => {
+            run_audit(&path, &config, &cache, &limiters, essentia_clf.as_deref())?;
+        }
+        cli::Commands::Tag { path, dry_run, write, force, skip_existing } => {
+            let actual_dry_run = !write || dry_run;
+            run_tag(
+                &path,
+                &config,
+                &cache,
+                &limiters,
+                essentia_clf.as_deref(),
+                actual_dry_run,
+                force,
+                skip_existing,
+            )?;
+        }
+        cli::Commands::Retry { path, write } => {
+            run_tag(&path, &config, &cache, &limiters, essentia_clf.as_deref(), !write, false, false)?;
+        }
+    }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Audit
+// ---------------------------------------------------------------------------
+
+fn run_audit(
+    path: &std::path::Path,
+    _config: &config::Config,
+    _cache: &Arc<cache::CachePool>,
+    _limiters: &Arc<rate_limit::RateLimiters>,
+    _essentia: Option<&EssentiaClassifier>,
+) -> anyhow::Result<()> {
+    let files = pipeline::scan_audio_files(path);
+    println!("Auditando {} archivos en {}", files.len(), path.display());
+
+    let mut missing_year = 0;
+    let mut missing_genre = 0;
+
+    for file in &files {
+        let tagged = lofty::probe::Probe::open(file)?.guess_file_type()?.read()?;
+        let tag = tagged.primary_tag();
+
+        let has_year = tag.and_then(|t| t.year()).is_some();
+        let has_genre = tag.and_then(|t| t.genre()).is_some();
+
+        if !has_year || !has_genre {
+            println!(
+                "  {} {}",
+                if !has_year && !has_genre { "[MISSING year+genre]".red() }
+                else if !has_year { "[MISSING year]".yellow() }
+                else { "[MISSING genre]".yellow() },
+                file.display()
+            );
+        }
+
+        if !has_year { missing_year += 1; }
+        if !has_genre { missing_genre += 1; }
+    }
+
+    println!("\nTotal: {} archivos | sin año: {} | sin género: {}", files.len(), missing_year, missing_genre);
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Tag (rayon + tokio bridge — Card 14)
+// ---------------------------------------------------------------------------
+
+fn run_tag(
+    path: &std::path::Path,
+    config: &config::Config,
+    cache: &Arc<cache::CachePool>,
+    limiters: &Arc<rate_limit::RateLimiters>,
+    essentia: Option<&EssentiaClassifier>,
+    dry_run: bool,
+    force: bool,
+    skip_existing: bool,
+) -> anyhow::Result<()> {
+    let files = pipeline::scan_audio_files(path);
+    println!("Procesando {} archivos...", files.len());
+
+    let pb = ProgressBar::new(files.len() as u64);
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("{spinner} [{bar:40}] {pos}/{len} {wide_msg}")
+            .unwrap()
+            .progress_chars("=> "),
+    );
+
+    // rayon::par_iter — cada thread crea su propio tokio runtime (Card 14)
+    let results: Vec<pipeline::ProcessResult> = files
+        .par_iter()
+        .map(|file| {
+            pb.set_message(file.file_name().unwrap_or_default().to_string_lossy().to_string());
+            let result = pipeline::process_track(
+                file,
+                config,
+                cache,
+                limiters,
+                essentia,
+                dry_run,
+                force,
+                skip_existing,
+            );
+            pb.inc(1);
+            result
+        })
+        .collect();
+
+    pb.finish_with_message("Listo");
+
+    // Resumen
+    let written = results.iter().filter(|r| matches!(r.status, models::TagWriteStatus::Written)).count();
+    let dry    = results.iter().filter(|r| matches!(r.status, models::TagWriteStatus::DryRun)).count();
+    let review = results.iter().filter(|r| matches!(r.status, models::TagWriteStatus::NeedsReview)).count();
+    let errors = results.iter().filter(|r| matches!(r.status, models::TagWriteStatus::Error(_))).count();
+
+    println!("\n{}", "─".repeat(60));
+    println!("  Written:      {}", written.to_string().green());
+    println!("  Dry-run:      {}", dry.to_string().cyan());
+    println!("  Needs review: {}", review.to_string().yellow());
+    println!("  Errors:       {}", errors.to_string().red());
+    println!("  Total:        {}", files.len());
 
     Ok(())
 }
