@@ -28,12 +28,6 @@ impl EssentiaClassifier {
     pub fn analyze(&self, _audio_path: &Path) -> Option<SourceResult> {
         // TODO Card 09b: implementar inferencia ONNX con ort cuando el modelo esté disponible
         // Pipeline: symphonia decode → mel spectrogram → ort session.run() → top-1 genre
-        Some(SourceResult {
-            source: SourceName::Essentia,
-            year: None,
-            genre: None,
-            subgenre: None,
-            confidence: 0.0,
-        })
+        None
     }
 }

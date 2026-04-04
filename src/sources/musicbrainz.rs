@@ -4,7 +4,7 @@ use anyhow::Result;
 use serde::Deserialize;
 
 const MB_BASE: &str = "https://musicbrainz.org/ws/2";
-const USER_AGENT: &str = "music-tagger/1.0 (music-tagger@example.com)";
+const USER_AGENT: &str = "music-tagger/1.0 (fmolinam@gmail.com)";
 
 // ---------------------------------------------------------------------------
 // Response structs
@@ -15,8 +15,9 @@ struct MbSearchResponse {
     recordings: Vec<MbRecording>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 struct MbRecording {
+    id: Option<String>,
     score: Option<u32>,
     #[serde(rename = "first-release-date")]
     first_release_date: Option<String>,
@@ -24,13 +25,13 @@ struct MbRecording {
     tags: Option<Vec<MbTag>>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 struct MbGenre {
     name: String,
     count: Option<u32>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 struct MbTag {
     name: String,
     count: Option<u32>,
@@ -40,24 +41,28 @@ struct MbTag {
 // Public API
 // ---------------------------------------------------------------------------
 
+/// Retorna (SourceResult, Option<MBID>) — el MBID se usa para lookup en AcousticBrainz.
 pub async fn analyze(
     track: &TrackMetadata,
     client: &reqwest::Client,
     limiter: &Limiter,
-) -> Option<SourceResult> {
-    let artist = track.artist.as_deref()?;
-    let title = track.title.as_deref()?;
+) -> (Option<SourceResult>, Option<String>) {
+    let (artist, title) = match (track.artist.as_deref(), track.title.as_deref()) {
+        (Some(a), Some(t)) => (a, t),
+        _ => return (None, None),
+    };
 
     limiter.until_ready().await;
 
-    let result = search_recording(client, artist, title).await;
-
-    match result {
-        Ok(Some(rec)) => build_result(rec),
-        Ok(None) => None,
+    match search_recording(client, artist, title).await {
+        Ok(Some(rec)) => {
+            let mbid = rec.id.clone();
+            (build_result(rec), mbid)
+        }
+        Ok(None) => (None, None),
         Err(e) => {
             eprintln!("[musicbrainz] error: {e}");
-            None
+            (None, None)
         }
     }
 }
@@ -88,12 +93,35 @@ async fn search_recording(
         .json::<MbSearchResponse>()
         .await?;
 
-    // Tomar el resultado con mayor score (MB devuelve sorted por score)
-    let best = resp
+    // Entre los resultados con score >= 70:
+    // 1. Priorizar recordings que tengan genre/tags (datos útiles)
+    // 2. Entre esos, elegir el de fecha más antigua (evitar re-releases)
+    let candidates: Vec<_> = resp
         .recordings
         .into_iter()
         .filter(|r| r.score.unwrap_or(0) >= 70)
-        .next();
+        .collect();
+
+    let has_genre_data = |r: &MbRecording| -> bool {
+        r.genres.as_ref().map_or(false, |g| !g.is_empty())
+            || r.tags.as_ref().map_or(false, |t| !t.is_empty())
+    };
+
+    let parse_year = |r: &MbRecording| -> u32 {
+        r.first_release_date
+            .as_deref()
+            .and_then(|d| d.split('-').next())
+            .and_then(|y| y.parse::<u32>().ok())
+            .unwrap_or(u32::MAX)
+    };
+
+    // Primero intentar candidatos con datos de género, luego el resto
+    let best = candidates
+        .iter()
+        .filter(|r| has_genre_data(r))
+        .min_by_key(|r| parse_year(r))
+        .or_else(|| candidates.iter().min_by_key(|r| parse_year(r)))
+        .cloned();
 
     Ok(best)
 }
@@ -137,12 +165,25 @@ fn build_result(rec: MbRecording) -> Option<SourceResult> {
         return None;
     }
 
+    // Confianza dinámica: score del search × dominancia del top tag
+    // Si el top genre/tag tiene count=10 y el total es 15, dominance=0.67
+    let tag_dominance = {
+        let all_counts: Vec<u32> = rec.genres.as_ref()
+            .map(|g| g.iter().filter_map(|x| x.count).collect())
+            .or_else(|| rec.tags.as_ref().map(|t| t.iter().filter_map(|x| x.count).collect()))
+            .unwrap_or_default();
+        let total: u32 = all_counts.iter().sum();
+        let top = all_counts.into_iter().max().unwrap_or(0);
+        if total > 0 { (top as f32 / total as f32).clamp(0.5, 1.0) } else { 0.7 }
+    };
+    let search_score = rec.score.unwrap_or(70) as f32 / 100.0;
+
     Some(SourceResult {
         source: SourceName::MusicBrainz,
         year,
         genre,
         subgenre,
-        confidence: 0.85,
+        confidence: search_score * tag_dominance,
     })
 }
 

@@ -1,7 +1,9 @@
+pub mod acousticbrainz;
 pub mod acoustid;
 pub mod discogs;
 pub mod essentia;
 pub mod lastfm;
 pub mod mb_mapping;
 pub mod musicbrainz;
+pub mod wiki_song;
 pub mod wikipedia;

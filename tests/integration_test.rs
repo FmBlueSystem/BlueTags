@@ -61,16 +61,17 @@ fn test_vote_needs_review_when_no_data() {
 }
 
 #[test]
-fn test_vote_conflict_favors_discogs() {
+fn test_vote_conflict_weights() {
     let results = vec![
         make_result(SourceName::Discogs, Some(1995), Some("rock"), 0.90),
         make_result(SourceName::LastFm, Some(1994), Some("pop"), 0.70),
     ];
 
     let vote_result = vote(results, 0.65);
-    // Discogs tiene peso 3 para año, LastFm tiene peso 2 → Discogs gana
+    // Discogs peso 3.0 para año > Last.fm 0.0 → Discogs gana año
     assert_eq!(vote_result.year.as_ref().map(|(y, _)| *y), Some(1995));
-    assert_eq!(vote_result.genre.as_ref().map(|(g, _)| g.as_str()), Some("rock"));
+    // Last.fm peso 2.5 para género > Discogs 1.0 → Last.fm gana género
+    assert_eq!(vote_result.genre.as_ref().map(|(g, _)| g.as_str()), Some("pop"));
 }
 
 #[test]

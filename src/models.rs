@@ -23,11 +23,13 @@ pub struct SourceResult {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum SourceName {
+    AcousticBrainz,
     Discogs,
     MusicBrainz,
     LastFm,
     AcoustId,
     Wikipedia,
+    WikiSong,
     Essentia,
     MbMapping,
     ExistingTag,
@@ -36,11 +38,13 @@ pub enum SourceName {
 impl std::fmt::Display for SourceName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            SourceName::AcousticBrainz => write!(f, "AcousticBrainz"),
             SourceName::Discogs => write!(f, "Discogs"),
             SourceName::MusicBrainz => write!(f, "MusicBrainz"),
             SourceName::LastFm => write!(f, "Last.fm"),
             SourceName::AcoustId => write!(f, "AcoustID"),
             SourceName::Wikipedia => write!(f, "Wikipedia"),
+            SourceName::WikiSong => write!(f, "WikiSong"),
             SourceName::Essentia => write!(f, "Essentia"),
             SourceName::MbMapping => write!(f, "MB Mapping"),
             SourceName::ExistingTag => write!(f, "ExistingTag"),

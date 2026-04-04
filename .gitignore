@@ -1,2 +1,5 @@
 /target
 .env
+music-tagger.db
+data/acousticbrainz_genres.db
+data/acousticbrainz/*.bz2

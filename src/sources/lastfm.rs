@@ -104,12 +104,21 @@ fn build_result(tags: Vec<Tag>) -> Option<SourceResult> {
 
     genre.as_ref()?;
 
+    // Confianza dinámica: dominancia del top tag sobre el total
+    let total_count: u32 = genre_tags.iter().filter_map(|t| t.count).sum();
+    let top_count: u32 = genre_tags.first().and_then(|t| t.count).unwrap_or(0);
+    let confidence = if total_count > 0 {
+        (top_count as f32 / total_count as f32).clamp(0.3, 0.95)
+    } else {
+        0.5
+    };
+
     Some(SourceResult {
         source: SourceName::LastFm,
-        year: None, // Last.fm no provee año confiable por track
+        year: None,
         genre,
         subgenre,
-        confidence: 0.65,
+        confidence,
     })
 }
 

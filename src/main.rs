@@ -44,11 +44,17 @@ fn main() -> anyhow::Result<()> {
         })
     };
 
+    // Cargar AcousticBrainz DB (opcional, ~1.3M recordings)
+    let ab_db_path = Path::new("data/acousticbrainz_genres.db");
+    let ab_db: Option<Arc<sources::acousticbrainz::AcousticBrainzDb>> =
+        sources::acousticbrainz::AcousticBrainzDb::open(ab_db_path).map(Arc::new);
+
     match cli.command {
         cli::Commands::Audit { path } => {
             run_audit(&path, &config, &cache, &limiters, essentia_clf.as_deref())?;
         }
         cli::Commands::Tag { path, dry_run, write, force, skip_existing } => {
+            config.validate_api_keys()?;
             let actual_dry_run = !write || dry_run;
             run_tag(
                 &path,
@@ -56,13 +62,15 @@ fn main() -> anyhow::Result<()> {
                 &cache,
                 &limiters,
                 essentia_clf.as_deref(),
+                ab_db.as_deref(),
                 actual_dry_run,
                 force,
                 skip_existing,
             )?;
         }
         cli::Commands::Retry { path, write } => {
-            run_tag(&path, &config, &cache, &limiters, essentia_clf.as_deref(), !write, false, false)?;
+            config.validate_api_keys()?;
+            run_tag(&path, &config, &cache, &limiters, essentia_clf.as_deref(), ab_db.as_deref(), !write, false, false)?;
         }
     }
 
@@ -80,8 +88,10 @@ fn run_audit(
     _limiters: &Arc<rate_limit::RateLimiters>,
     _essentia: Option<&EssentiaClassifier>,
 ) -> anyhow::Result<()> {
-    let files = pipeline::scan_audio_files(path);
-    println!("Auditando {} archivos en {}", files.len(), path.display());
+    let all_files = pipeline::scan_audio_files(path);
+    let files: Vec<_> = all_files.iter().filter(|f| !pipeline::is_remix(f)).cloned().collect();
+    let remixes_skipped = all_files.len() - files.len();
+    println!("Auditando {} archivos en {} ({} remixes ignorados)", files.len(), path.display(), remixes_skipped);
 
     let mut missing_year = 0;
     let mut missing_genre = 0;
@@ -121,12 +131,14 @@ fn run_tag(
     cache: &Arc<cache::CachePool>,
     limiters: &Arc<rate_limit::RateLimiters>,
     essentia: Option<&EssentiaClassifier>,
+    ab_db: Option<&sources::acousticbrainz::AcousticBrainzDb>,
     dry_run: bool,
     force: bool,
     skip_existing: bool,
 ) -> anyhow::Result<()> {
     let files = pipeline::scan_audio_files(path);
-    println!("Procesando {} archivos...", files.len());
+    let remix_count = files.iter().filter(|f| pipeline::is_remix(f)).count();
+    println!("Procesando {} archivos ({} remixes incluidos)...", files.len(), remix_count);
 
     let pb = ProgressBar::new(files.len() as u64);
     pb.set_style(
@@ -147,6 +159,7 @@ fn run_tag(
                 cache,
                 limiters,
                 essentia,
+                ab_db,
                 dry_run,
                 force,
                 skip_existing,
@@ -163,6 +176,11 @@ fn run_tag(
     let dry    = results.iter().filter(|r| matches!(r.status, models::TagWriteStatus::DryRun)).count();
     let review = results.iter().filter(|r| matches!(r.status, models::TagWriteStatus::NeedsReview)).count();
     let errors = results.iter().filter(|r| matches!(r.status, models::TagWriteStatus::Error(_))).count();
+
+    // Listar archivos que necesitan revisión
+    for r in results.iter().filter(|r| matches!(r.status, models::TagWriteStatus::NeedsReview)) {
+        println!("[NEEDS REVIEW] {}", r.path.display());
+    }
 
     println!("\n{}", "─".repeat(60));
     println!("  Written:      {}", written.to_string().green());
