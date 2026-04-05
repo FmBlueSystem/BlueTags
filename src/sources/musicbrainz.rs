@@ -167,23 +167,34 @@ fn build_result(rec: MbRecording) -> Option<SourceResult> {
 
     // Confianza dinámica: score del search × dominancia del top tag
     // Si el top genre/tag tiene count=10 y el total es 15, dominance=0.67
-    let tag_dominance = {
+    let (tag_dominance, total_genre_votes) = {
         let all_counts: Vec<u32> = rec.genres.as_ref()
             .map(|g| g.iter().filter_map(|x| x.count).collect())
             .or_else(|| rec.tags.as_ref().map(|t| t.iter().filter_map(|x| x.count).collect()))
             .unwrap_or_default();
         let total: u32 = all_counts.iter().sum();
         let top = all_counts.into_iter().max().unwrap_or(0);
-        if total > 0 { (top as f32 / total as f32).clamp(0.5, 1.0) } else { 0.7 }
+        let dominance = if total > 0 { (top as f32 / total as f32).clamp(0.5, 1.0) } else { 0.7 };
+        (dominance, total)
     };
     let search_score = rec.score.unwrap_or(70) as f32 / 100.0;
+
+    // Penalización por baja evidencia de género en MB.
+    // MB frecuentemente etiqueta recordings con el género del ARTISTA (no del track).
+    // Si hay muy pocos votos (<= 3), la confianza de género se reduce para que
+    // otras fuentes track-específicas (WikiSong, AcousticBrainz, Discogs) puedan ganar.
+    let genre_confidence_penalty = if genre.is_some() && total_genre_votes <= 3 {
+        0.70 // reduce a 70% cuando hay poca evidencia track-específica
+    } else {
+        1.0
+    };
 
     Some(SourceResult {
         source: SourceName::MusicBrainz,
         year,
         genre,
         subgenre,
-        confidence: search_score * tag_dominance,
+        confidence: search_score * tag_dominance * genre_confidence_penalty,
     })
 }
 

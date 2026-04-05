@@ -72,16 +72,25 @@ fn try_write(path: &Path, vote: &VoteResult) -> Result<()> {
     // Nunca sobreescribimos DATE en Vorbis (es el año de la compilación DMC)
     if let Some((year, _)) = &vote.year {
         if is_vorbis {
-            // Limpiar cualquier YEAR previo.
-            // lofty lee "YEAR" de Vorbis y lo mapea a ItemKey::Year (no Unknown),
-            // por eso hay que remover AMBOS para evitar triplicación.
+            // Limpiar YEAR y DATE previos.
+            // lofty mapea DATE de Vorbis → ItemKey::Year internamente, por eso
+            // al hacer retain(ItemKey::Year => false) se elimina el DATE original.
+            // Si no re-escribimos DATE, lofty escribe la fecha del sistema al guardar.
             tag.retain(|i| match i.key() {
                 ItemKey::Year => false,
-                ItemKey::Unknown(k) => !k.eq_ignore_ascii_case("year"),
+                ItemKey::Unknown(k) => {
+                    !k.eq_ignore_ascii_case("year") && !k.eq_ignore_ascii_case("date")
+                }
                 _ => true,
             });
+            // Escribir YEAR (campo canónico de nuestra pipeline)
             tag.insert_unchecked(TagItem::new(
                 ItemKey::Unknown("YEAR".to_string()),
+                ItemValue::Text(year.to_string()),
+            ));
+            // Escribir DATE igual que YEAR para evitar que lofty lo setee a fecha de hoy
+            tag.insert_unchecked(TagItem::new(
+                ItemKey::Unknown("DATE".to_string()),
                 ItemValue::Text(year.to_string()),
             ));
         } else {
