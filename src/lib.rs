@@ -6,5 +6,4 @@ pub mod models;
 pub mod pipeline;
 pub mod rate_limit;
 pub mod sources;
-pub mod audio_features;
 pub mod tagger;
