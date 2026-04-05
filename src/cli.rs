@@ -60,6 +60,14 @@ pub enum Commands {
         /// Saltar archivos que ya tengan género y año
         #[arg(long)]
         skip_existing: bool,
+
+        /// Corregir nombre de artista via MusicBrainz (score>=90)
+        #[arg(long)]
+        correct_artist: bool,
+
+        /// Mapear GENRE al sistema DJ interno (11 categorías)
+        #[arg(long)]
+        map_genre: bool,
     },
 
     /// Reprocesar solo archivos marcados como NEEDS_REVIEW
@@ -70,5 +78,15 @@ pub enum Commands {
         /// Escribir tags reales en los archivos
         #[arg(long)]
         write: bool,
+    },
+
+    /// Analizar características de audio (vocal%, brightness) — output JSON
+    AudioFeatures {
+        /// Directorio con archivos FLAC a analizar
+        path: PathBuf,
+
+        /// Output JSON a stdout
+        #[arg(long)]
+        json: bool,
     },
 }

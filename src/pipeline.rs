@@ -3,7 +3,7 @@ use crate::config::Config;
 use crate::models::{SourceResult, TagWriteStatus, TrackMetadata};
 use crate::rate_limit::RateLimiters;
 use crate::sources::{acousticbrainz, acoustid, discogs, essentia, lastfm, mb_mapping, musicbrainz, wiki_song, wikipedia};
-use crate::tagger::{voter, writer};
+use crate::tagger::{correction, voter, writer};
 use anyhow::Result;
 use lofty::prelude::*;
 use lofty::probe::Probe;
@@ -29,6 +29,8 @@ pub fn process_track(
     dry_run: bool,
     force: bool,
     skip_existing: bool,
+    correct_artist: bool,
+    map_genre: bool,
 ) -> ProcessResult {
     if is_in_fakes_folder(path) {
         let status = writer::mark_as_fake(path, dry_run);
@@ -51,6 +53,8 @@ pub fn process_track(
             dry_run,
             force,
             skip_existing,
+            correct_artist,
+            map_genre,
         )
         .await
     });
@@ -86,6 +90,8 @@ async fn process_async(
     dry_run: bool,
     force: bool,
     skip_existing: bool,
+    correct_artist: bool,
+    map_genre: bool,
 ) -> Result<(TagWriteStatus, crate::models::VoteResult)> {
     // 1. Leer metadata existente con lofty
     let mut track = read_metadata(path)?;
@@ -176,12 +182,55 @@ async fn process_async(
     // 8. Escribir tags
     let status = writer::write_tags(path, &vote, dry_run);
 
+    // 9. Post-write corrections (optional, only when flags are set)
+    if !dry_run {
+        if correct_artist {
+            if let Some(ref artist) = track.artist {
+                if let Some(corrected) = correction::correct_artist(artist, &client).await {
+                    let _ = apply_artist_correction(path, corrected);
+                }
+            }
+        }
+        if map_genre {
+            let _ = apply_genre_mapping(path);
+        }
+    }
+
     Ok((status, vote))
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+fn apply_artist_correction(path: &Path, corrected: String) -> anyhow::Result<()> {
+    let mut tagged_file = Probe::open(path)?.guess_file_type()?.read()?;
+    if let Some(tag) = tagged_file.primary_tag_mut() {
+        tag.set_artist(corrected);
+        tagged_file.save_to_path(path, lofty::config::WriteOptions::default())?;
+    }
+    Ok(())
+}
+
+fn apply_genre_mapping(path: &Path) -> anyhow::Result<()> {
+    // Read current genre
+    let current_genre = {
+        let tagged_file = Probe::open(path)?.guess_file_type()?.read()?;
+        tagged_file
+            .primary_tag()
+            .and_then(|t| t.genre().map(|g| g.to_string()))
+    };
+    if let Some(genre_str) = current_genre {
+        if let Some(mapped) = correction::map_genre(&genre_str) {
+            let mut tagged_file2 = Probe::open(path)?.guess_file_type()?.read()?;
+            if let Some(tag) = tagged_file2.primary_tag_mut() {
+                tag.set_genre(mapped.to_string());
+                tagged_file2.save_to_path(path, lofty::config::WriteOptions::default())?;
+            }
+        }
+    }
+    Ok(())
+}
 
 fn read_metadata(path: &Path) -> Result<TrackMetadata> {
     let tagged = Probe::open(path)?.guess_file_type()?.read()?;

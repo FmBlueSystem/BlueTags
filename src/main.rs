@@ -53,7 +53,7 @@ fn main() -> anyhow::Result<()> {
         cli::Commands::Audit { path } => {
             run_audit(&path, &config, &cache, &limiters, essentia_clf.as_deref())?;
         }
-        cli::Commands::Tag { path, dry_run, write, force, skip_existing } => {
+        cli::Commands::Tag { path, dry_run, write, force, skip_existing, correct_artist, map_genre } => {
             config.validate_api_keys()?;
             let actual_dry_run = !write || dry_run;
             run_tag(
@@ -66,11 +66,32 @@ fn main() -> anyhow::Result<()> {
                 actual_dry_run,
                 force,
                 skip_existing,
+                correct_artist,
+                map_genre,
             )?;
         }
         cli::Commands::Retry { path, write } => {
             config.validate_api_keys()?;
-            run_tag(&path, &config, &cache, &limiters, essentia_clf.as_deref(), ab_db.as_deref(), !write, false, false)?;
+            run_tag(&path, &config, &cache, &limiters, essentia_clf.as_deref(), ab_db.as_deref(), !write, false, false, false, false)?;
+        }
+        cli::Commands::AudioFeatures { path, json } => {
+            use music_tagger::audio_features;
+            let files = music_tagger::pipeline::scan_audio_files(&path);
+            let results = audio_features::analyze_batch(&files);
+            if json {
+                println!("{}", serde_json::to_string_pretty(&results)?);
+            } else {
+                for r in &results {
+                    if let Some(e) = &r.error {
+                        eprintln!("[ERROR] {}: {}", r.file, e);
+                    } else {
+                        println!("{} - vocal:{:.2} bright:{:.2}",
+                            r.file,
+                            r.vocal_pct.unwrap_or(0.0),
+                            r.brightness.unwrap_or(0.0));
+                    }
+                }
+            }
         }
     }
 
@@ -135,6 +156,8 @@ fn run_tag(
     dry_run: bool,
     force: bool,
     skip_existing: bool,
+    correct_artist: bool,
+    map_genre: bool,
 ) -> anyhow::Result<()> {
     let files = pipeline::scan_audio_files(path);
     let remix_count = files.iter().filter(|f| pipeline::is_remix(f)).count();
@@ -163,6 +186,8 @@ fn run_tag(
                 dry_run,
                 force,
                 skip_existing,
+                correct_artist,
+                map_genre,
             );
             pb.inc(1);
             result

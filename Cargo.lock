@@ -1307,6 +1307,7 @@ dependencies = [
  "regex",
  "reqwest",
  "rusqlite",
+ "rustfft",
  "rusty-chromaprint",
  "serde",
  "serde_json",

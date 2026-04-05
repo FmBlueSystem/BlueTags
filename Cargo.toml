@@ -59,6 +59,7 @@ thiserror = "1"
 dotenvy = "0.15"
 
 # Audio decoding (AcoustID fingerprinting)
+rustfft = "6"
 symphonia = { version = "0.5", features = ["mp3", "flac", "wav", "aiff", "ogg", "pcm"] }
 
 # Fingerprint encoding (AcoustID API)
