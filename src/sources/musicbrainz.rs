@@ -71,11 +71,45 @@ pub async fn analyze(
 // Internals
 // ---------------------------------------------------------------------------
 
+/// Extrae el artista primario: "Michael Jackson & Siedah Garrett" → "Michael Jackson"
+/// Handles: " & ", " feat. ", " ft. ", " featuring ", " vs. ", " vs "
+fn primary_artist(artist: &str) -> &str {
+    for sep in [" & ", " feat. ", " ft. ", " featuring ", " vs. ", " vs "] {
+        if let Some(idx) = artist.find(sep) {
+            return artist[..idx].trim();
+        }
+    }
+    artist
+}
+
 async fn search_recording(
     client: &reqwest::Client,
     artist: &str,
     title: &str,
 ) -> Result<Option<MbRecording>> {
+    // Intento 1: artista completo
+    let candidates = mb_search(client, artist, title).await?;
+    if !candidates.is_empty() {
+        return Ok(pick_best(candidates));
+    }
+
+    // Intento 2: solo artista primario (antes de & / feat.)
+    let primary = primary_artist(artist);
+    if primary != artist {
+        let candidates2 = mb_search(client, primary, title).await?;
+        if !candidates2.is_empty() {
+            return Ok(pick_best(candidates2));
+        }
+    }
+
+    Ok(None)
+}
+
+async fn mb_search(
+    client: &reqwest::Client,
+    artist: &str,
+    title: &str,
+) -> Result<Vec<MbRecording>> {
     let query = format!(
         "recording:\"{}\" AND artist:\"{}\"",
         escape_lucene(title),
@@ -93,15 +127,17 @@ async fn search_recording(
         .json::<MbSearchResponse>()
         .await?;
 
-    // Entre los resultados con score >= 70:
-    // 1. Priorizar recordings que tengan genre/tags (datos útiles)
-    // 2. Entre esos, elegir el de fecha más antigua (evitar re-releases)
+    // Score >= 70, priorizar recordings con genre/tags
     let candidates: Vec<_> = resp
         .recordings
         .into_iter()
         .filter(|r| r.score.unwrap_or(0) >= 70)
         .collect();
 
+    Ok(candidates)
+}
+
+fn pick_best(candidates: Vec<MbRecording>) -> Option<MbRecording> {
     let has_genre_data = |r: &MbRecording| -> bool {
         r.genres.as_ref().map_or(false, |g| !g.is_empty())
             || r.tags.as_ref().map_or(false, |t| !t.is_empty())
@@ -115,15 +151,12 @@ async fn search_recording(
             .unwrap_or(u32::MAX)
     };
 
-    // Primero intentar candidatos con datos de género, luego el resto
-    let best = candidates
+    candidates
         .iter()
         .filter(|r| has_genre_data(r))
         .min_by_key(|r| parse_year(r))
         .or_else(|| candidates.iter().min_by_key(|r| parse_year(r)))
-        .cloned();
-
-    Ok(best)
+        .cloned()
 }
 
 fn build_result(rec: MbRecording) -> Option<SourceResult> {
