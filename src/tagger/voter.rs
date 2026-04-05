@@ -122,7 +122,7 @@ fn weight_genre(source: &SourceName) -> f32 {
 // Voting
 // ---------------------------------------------------------------------------
 
-pub fn vote(results: Vec<SourceResult>, confidence_threshold: f32) -> VoteResult {
+pub fn vote(results: Vec<SourceResult>, confidence_threshold: f32, force_decade: Option<&str>) -> VoteResult {
     let mut year_scores: HashMap<u32, f32> = HashMap::new();
     let mut genre_scores: HashMap<String, f32> = HashMap::new();
     let mut subgenre_scores: HashMap<String, f32> = HashMap::new();
@@ -155,7 +155,7 @@ pub fn vote(results: Vec<SourceResult>, confidence_threshold: f32) -> VoteResult
         // Votar género (con normalización de sinónimos)
         if let Some(ref genre) = result.genre {
             let lower = genre.to_lowercase();
-            if !lower.starts_with("mbid:") && gw > 0.0 {
+            if gw > 0.0 {
                 let normalized = normalize_genre(&lower);
                 *genre_scores.entry(normalized).or_default() += gw * result.confidence;
                 max_genre_weight += gw;
@@ -207,20 +207,40 @@ pub fn vote(results: Vec<SourceResult>, confidence_threshold: f32) -> VoteResult
         (val.clone(), plurality)
     });
 
-    // needs_review: género es obligatorio.
-    // Absolute floor: si el top raw score ≥ 2.5, la fuente es suficientemente fuerte
-    // para pasar aunque haya desacuerdo (ej. WikiSong peso 3.5 × conf 0.85 = 2.975).
+    // needs_review: regla única — género y año son obligatorios con confianza suficiente.
     let genre_ok = genre_result.as_ref().map(|(_, s)| *s >= confidence_threshold).unwrap_or(false);
-    let genre_strong = genre_scores.values().copied().fold(0.0f32, f32::max) >= 2.5;
-    let needs_review = !(genre_ok || genre_strong)
-        || (genre_ok && genre_source_count < 2 && year_result.is_none() && !genre_strong);
+    let needs_review = !genre_ok || year_result.is_none() || genre_result.is_none();
 
-    // Decade desde el año ganador
-    let decade = year_result.as_ref().map(|(year, _)| to_decade(*year));
+    // Decade desde el año ganador, con override si force_decade está activo
+    let (final_year, decade) = match force_decade {
+        Some(forced) => {
+            // Extraer rango de la década forzada ("1980s" → 1980..=1989)
+            let decade_start = forced.trim_end_matches('s').parse::<u32>().ok();
+            let (adj_year, dec) = match (year_result.as_ref(), decade_start) {
+                (Some(&(voted_year, conf)), Some(start)) => {
+                    let end = start + 9;
+                    if voted_year >= start && voted_year <= end {
+                        // El año votado cae dentro de la década forzada — preservarlo
+                        (Some((voted_year, conf)), forced.to_string())
+                    } else {
+                        // Año fuera de rango — usar midpoint de la década forzada
+                        (Some((start + 5, conf)), forced.to_string())
+                    }
+                }
+                (None, Some(start)) => (Some((start + 5, 0.5)), forced.to_string()),
+                _ => (year_result.clone(), to_decade(year_result.as_ref().map(|(y,_)| *y).unwrap_or(2000))),
+            };
+            (adj_year, Some(dec))
+        }
+        None => {
+            let dec = year_result.as_ref().map(|(year, _)| to_decade(*year));
+            (year_result, dec)
+        }
+    };
 
     VoteResult {
-        year: year_result,
-        decade,
+        year: final_year,
+        decade: Some(decade.unwrap_or_default()).filter(|s| !s.is_empty()),
         genre: genre_result,
         subgenre: subgenre_result,
         needs_review,
@@ -273,11 +293,9 @@ pub fn quick_genre_leader(results: &[SourceResult]) -> Option<String> {
     for r in results {
         if let Some(ref genre) = r.genre {
             let g = genre.to_lowercase();
-            if !g.starts_with("mbid:") {
-                let w = weight_genre(&r.source);
-                if w > 0.0 {
-                    *scores.entry(g).or_default() += w * r.confidence;
-                }
+            let w = weight_genre(&r.source);
+            if w > 0.0 {
+                *scores.entry(g).or_default() += w * r.confidence;
             }
         }
     }

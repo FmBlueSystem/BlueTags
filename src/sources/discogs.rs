@@ -175,5 +175,6 @@ fn build_result(release: ReleaseResponse, search_confidence: f32) -> Option<Sour
         genre,
         subgenre,
         confidence: search_confidence,
+        mbid: None,
     })
 }

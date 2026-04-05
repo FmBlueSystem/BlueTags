@@ -19,6 +19,7 @@ pub struct SourceResult {
     pub genre: Option<String>,
     pub subgenre: Option<String>,
     pub confidence: f32,
+    pub mbid: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

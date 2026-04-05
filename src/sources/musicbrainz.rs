@@ -19,10 +19,18 @@ struct MbSearchResponse {
 struct MbRecording {
     id: Option<String>,
     score: Option<u32>,
+    title: Option<String>,
     #[serde(rename = "first-release-date")]
     first_release_date: Option<String>,
     genres: Option<Vec<MbGenre>>,
     tags: Option<Vec<MbTag>>,
+}
+
+/// Detecta si una grabación es un remix/edit/rework por el título.
+fn is_remix_recording(rec: &MbRecording) -> bool {
+    let title = rec.title.as_deref().unwrap_or("").to_lowercase();
+    let remix_patterns = ["remix)", "mix)", "rework)", "edit)", "bootleg)", "version)", "re-edit)"];
+    remix_patterns.iter().any(|p| title.contains(p))
 }
 
 #[derive(Deserialize, Clone)]
@@ -151,11 +159,17 @@ fn pick_best(candidates: Vec<MbRecording>) -> Option<MbRecording> {
             .unwrap_or(u32::MAX)
     };
 
-    candidates
-        .iter()
+    // Separar originales de remixes — preferir originales
+    let (originals, remixes): (Vec<_>, Vec<_>) = candidates.iter()
+        .partition(|r| !is_remix_recording(r));
+
+    let pool = if !originals.is_empty() { &originals } else { &remixes };
+
+    pool.iter()
         .filter(|r| has_genre_data(r))
         .min_by_key(|r| parse_year(r))
-        .or_else(|| candidates.iter().min_by_key(|r| parse_year(r)))
+        .or_else(|| pool.iter().min_by_key(|r| parse_year(r)))
+        .cloned()
         .cloned()
 }
 
@@ -171,12 +185,12 @@ fn build_result(rec: MbRecording) -> Option<SourceResult> {
         .genres
         .as_ref()
         .and_then(|g| g.iter().max_by_key(|x| x.count.unwrap_or(0)))
-        .map(|g| g.name.clone())
+        .map(|g| title_case_genre(&g.name))
         .or_else(|| {
             rec.tags
                 .as_ref()
                 .and_then(|t| t.iter().max_by_key(|x| x.count.unwrap_or(0)))
-                .map(|t| t.name.clone())
+                .map(|t| title_case_genre(&t.name))
         });
 
     let subgenre = rec
@@ -187,7 +201,7 @@ fn build_result(rec: MbRecording) -> Option<SourceResult> {
                 g.iter()
                     .filter(|x| x.count.unwrap_or(0) > 0)
                     .nth(1)
-                    .map(|g| g.name.clone())
+                    .map(|g| title_case_genre(&g.name))
             } else {
                 None
             }
@@ -228,6 +242,7 @@ fn build_result(rec: MbRecording) -> Option<SourceResult> {
         genre,
         subgenre,
         confidence: search_score * tag_dominance * genre_confidence_penalty,
+        mbid: None,
     })
 }
 
@@ -236,4 +251,55 @@ fn escape_lucene(s: &str) -> String {
         .replace(':', "\\:")
         .replace('(', "\\(")
         .replace(')', "\\)")
+}
+
+/// Normaliza un género/subgénero a Title Case.
+/// "synth-pop" → "Synth-Pop", "dance-pop" → "Dance-Pop", "r&b" → "R&B"
+pub fn title_case_genre(s: &str) -> String {
+    if s.is_empty() { return s.to_string(); }
+    // Casos conocidos que no siguen la regla genérica
+    let known: &[(&str, &str)] = &[
+        ("r&b", "R&B"),
+        ("hi-nrg", "Hi-NRG"),
+        ("hi nrg", "Hi-NRG"),
+        ("dj mix", "DJ Mix"),
+        ("electro-funk", "Electro Funk"),
+        ("electro funk", "Electro Funk"),
+        ("hip-house", "Hip-House"),
+        ("hip house", "Hip-House"),
+        ("old-school hip-hop", "Old-School Hip-Hop"),
+        ("old school hip-hop", "Old-School Hip-Hop"),
+        ("contemporary r&b", "Contemporary R&B"),
+        ("synth-pop", "Synth-Pop"),
+        ("synth pop", "Synth-Pop"),
+        ("dance-pop", "Dance-Pop"),
+        ("reggae-pop", "Reggae-Pop"),
+        ("sophisti-pop", "Sophisti-Pop"),
+        ("post-disco", "Post-Disco"),
+    ];
+    let lower = s.to_lowercase();
+    if let Some(&(_, canonical)) = known.iter().find(|(k, _)| *k == lower.as_str()) {
+        return canonical.to_string();
+    }
+    // Genérico: capitalizar primera letra de cada palabra separada por espacio o guión
+    s.split_whitespace()
+        .map(|word| {
+            let mut result = String::new();
+            let mut first_in_segment = true;
+            for (i, c) in word.char_indices() {
+                if c == '-' {
+                    result.push(c);
+                    first_in_segment = true;
+                } else if first_in_segment {
+                    result.extend(c.to_uppercase());
+                    first_in_segment = false;
+                } else {
+                    result.push(c);
+                }
+                let _ = i;
+            }
+            result
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }

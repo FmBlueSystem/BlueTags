@@ -82,6 +82,7 @@ impl AcousticBrainzDb {
             genre: Some(genre),
             subgenre: top_subgenre,
             confidence,
+            mbid: None,
         })
     }
 }

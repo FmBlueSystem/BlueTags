@@ -60,14 +60,7 @@ pub async fn analyze(
         genre: None,
         subgenre: None,
         confidence: 0.90,
-        // El MBID se usa en el pipeline para buscar en MusicBrainz
-        // Aquí lo embebemos en el campo genre como hack temporal
-        // Card 14 lo propagará correctamente
-    })
-    // Suprimir el mbid por ahora — se conectará al pipeline en Card 14
-    .map(|mut r| {
-        r.genre = Some(format!("mbid:{mbid}"));
-        r
+        mbid: Some(mbid),
     })
 }
 

@@ -1,3 +1,4 @@
+pub mod audio_features;
 pub mod cache;
 pub mod cli;
 pub mod config;

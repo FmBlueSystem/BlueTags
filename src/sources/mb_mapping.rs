@@ -106,6 +106,7 @@ pub fn to_source_result(genre: MbGenre) -> SourceResult {
         genre: Some(genre.mb_genre),
         subgenre: genre.mb_subgenre,
         confidence: genre.confidence,
+        mbid: None,
     }
 }
 

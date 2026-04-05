@@ -53,8 +53,17 @@ fn main() -> anyhow::Result<()> {
         cli::Commands::Audit { path } => {
             run_audit(&path, &config, &cache, &limiters, essentia_clf.as_deref())?;
         }
-        cli::Commands::Tag { path, dry_run, write, force, skip_existing, correct_artist, map_genre } => {
+        cli::Commands::Tag { path, dry_run, write, force, skip_existing, correct_artist, map_genre, force_decade } => {
             config.validate_api_keys()?;
+            // Validar formato de force_decade si se provee
+            if let Some(ref fd) = force_decade {
+                let valid = fd.ends_with('s') && fd.len() == 5
+                    && fd[..4].parse::<u32>().is_ok();
+                if !valid {
+                    eprintln!("error: --force-decade debe tener formato \"NNNNs\" (ej: \"1980s\")");
+                    std::process::exit(1);
+                }
+            }
             let actual_dry_run = !write || dry_run;
             run_tag(
                 &path,
@@ -68,11 +77,12 @@ fn main() -> anyhow::Result<()> {
                 skip_existing,
                 correct_artist,
                 map_genre,
+                force_decade.as_deref(),
             )?;
         }
         cli::Commands::Retry { path, write } => {
             config.validate_api_keys()?;
-            run_tag(&path, &config, &cache, &limiters, essentia_clf.as_deref(), ab_db.as_deref(), !write, false, false, false, false)?;
+            run_tag(&path, &config, &cache, &limiters, essentia_clf.as_deref(), ab_db.as_deref(), !write, false, false, false, false, None)?;
         }
         cli::Commands::AudioFeatures { path, json } => {
             use music_tagger::audio_features;
@@ -158,6 +168,7 @@ fn run_tag(
     skip_existing: bool,
     correct_artist: bool,
     map_genre: bool,
+    force_decade: Option<&str>,
 ) -> anyhow::Result<()> {
     let files = pipeline::scan_audio_files(path);
     let remix_count = files.iter().filter(|f| pipeline::is_remix(f)).count();
@@ -188,6 +199,7 @@ fn run_tag(
                 skip_existing,
                 correct_artist,
                 map_genre,
+                force_decade,
             );
             pb.inc(1);
             result

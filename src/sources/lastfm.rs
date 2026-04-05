@@ -119,6 +119,7 @@ fn build_result(tags: Vec<Tag>) -> Option<SourceResult> {
         genre,
         subgenre,
         confidence,
+        mbid: None,
     })
 }
 

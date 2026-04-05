@@ -31,6 +31,7 @@ pub fn process_track(
     skip_existing: bool,
     correct_artist: bool,
     map_genre: bool,
+    force_decade: Option<&str>,
 ) -> ProcessResult {
     if is_in_fakes_folder(path) {
         let status = writer::mark_as_fake(path, dry_run);
@@ -55,6 +56,7 @@ pub fn process_track(
             skip_existing,
             correct_artist,
             map_genre,
+            force_decade,
         )
         .await
     });
@@ -92,6 +94,7 @@ async fn process_async(
     skip_existing: bool,
     correct_artist: bool,
     map_genre: bool,
+    force_decade: Option<&str>,
 ) -> Result<(TagWriteStatus, crate::models::VoteResult)> {
     // 1. Leer metadata existente con lofty
     let mut track = read_metadata(path)?;
@@ -115,7 +118,7 @@ async fn process_async(
 
     let mut results: Vec<SourceResult> = Vec::new();
 
-    // 4. Fuentes concurrentes (MB retorna MBID para AcousticBrainz lookup)
+    // 4. Fuentes concurrentes
     let (mb_res, discogs_res, lastfm_res) = tokio::join!(
         musicbrainz::analyze(&track, &client, &limiters.musicbrainz),
         discogs::analyze(&track, &client, &limiters.discogs, &config.discogs_token),
@@ -127,16 +130,23 @@ async fn process_async(
     if let Some(r) = discogs_res { results.push(r); }
     if let Some(r) = lastfm_res { results.push(r); }
 
-    // 5. AcousticBrainz — lookup local por MBID (sin API call)
-    if let (Some(db), Some(ref mbid)) = (ab_db, &mb_mbid) {
-        if let Some(r) = db.lookup(mbid) {
-            results.push(r);
-        }
-    }
-
-    // AcoustID (opcional)
-    if !config.acoustid_app_key.is_empty() {
+    // 5. AcoustID (opcional) — corre ANTES de AcousticBrainz para proveer MBID via fingerprint
+    let acoustid_mbid = if !config.acoustid_app_key.is_empty() {
         if let Some(r) = acoustid::analyze(&track, &client, &limiters.acoustid, &config.acoustid_app_key).await {
+            let mbid = r.mbid.clone();
+            results.push(r);
+            mbid
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    // 5b. AcousticBrainz — lookup local por MBID (AcoustID tiene prioridad sobre MB)
+    let resolved_mbid = acoustid_mbid.or(mb_mbid);
+    if let (Some(db), Some(ref mbid)) = (ab_db, &resolved_mbid) {
+        if let Some(r) = db.lookup(mbid) {
             results.push(r);
         }
     }
@@ -171,13 +181,14 @@ async fn process_async(
                     genre: Some(top_genre.to_string()),
                     subgenre: validation.parent_genre,
                     confidence: 0.70,
+                    mbid: None,
                 });
             }
         }
     }
 
     // 7. Voting
-    let vote = voter::vote(results, config.confidence_threshold);
+    let vote = voter::vote(results, config.confidence_threshold, force_decade);
 
     // 8. Escribir tags
     let status = writer::write_tags(path, &vote, dry_run);
@@ -199,10 +210,6 @@ async fn process_async(
     Ok((status, vote))
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 fn apply_artist_correction(path: &Path, corrected: String) -> anyhow::Result<()> {
     let mut tagged_file = Probe::open(path)?.guess_file_type()?.read()?;
     if let Some(tag) = tagged_file.primary_tag_mut() {
@@ -213,7 +220,6 @@ fn apply_artist_correction(path: &Path, corrected: String) -> anyhow::Result<()>
 }
 
 fn apply_genre_mapping(path: &Path) -> anyhow::Result<()> {
-    // Read current genre
     let current_genre = {
         let tagged_file = Probe::open(path)?.guess_file_type()?.read()?;
         tagged_file
@@ -231,6 +237,10 @@ fn apply_genre_mapping(path: &Path) -> anyhow::Result<()> {
     }
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 fn read_metadata(path: &Path) -> Result<TrackMetadata> {
     let tagged = Probe::open(path)?.guess_file_type()?.read()?;

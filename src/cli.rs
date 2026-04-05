@@ -68,6 +68,10 @@ pub enum Commands {
         /// Mapear GENRE al sistema DJ interno (11 categorías)
         #[arg(long)]
         map_genre: bool,
+
+        /// Forzar década en todos los archivos del batch (ej: "1980s")
+        #[arg(long)]
+        force_decade: Option<String>,
     },
 
     /// Reprocesar solo archivos marcados como NEEDS_REVIEW
